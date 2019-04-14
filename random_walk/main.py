@@ -70,7 +70,7 @@ class MarkovRewardProcess(MarkovProcess):
             if delta < 1e-4: break
         return values
 
-
+# FIXME: better be a function
 class MonteCarlo(MarkovProcess):
     def __init__(self, states, alpha):
         super().__init__(states)
@@ -82,7 +82,7 @@ class MonteCarlo(MarkovProcess):
         for ex in examples:
             visited = []
             ret = ex.reward
-            for s in ex.path[-2::-1]:
+            for s in ex.path[-2::-1]: # this could be forward since undiscounted
                 if s not in visited:
                     values[s] = values[s] + self.alpha * (ret - values[s])
         return values
