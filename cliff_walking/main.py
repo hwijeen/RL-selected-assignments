@@ -29,13 +29,31 @@ def initialize_S(states, fixed=None):
     if fixed is not None: return fixed
     return random.choice(states)
 
-class SARSA():
+class TD():
     def __init__(self, alpha, gamma=1):
         self.alpha = alpha
         self.gamma = gamma
 
+    def __call__(self):
+        raise NotImplementedError
+
+class SARSA(TD):
+    def __init__(self, alpha, gamma=1):
+        super().__init__(alpha, gamma)
+
     def __call__(self, S, A, R, S_prime, A_prime, Q):
         Q[S][A] += self.alpha * (R + self.gamma * Q[S_prime][A_prime] - Q[S][A])
+
+
+class QLearning(TD):
+    def __init__(self, actions, alpha, gamma=1):
+        super().__init__(alpha, gamma)
+        self.actions = actions
+
+    def __call__(self, S, A, R, S_prime, Q):
+        max_Q = max(Q[S_prime][a] for a in actions)
+        Q[S][A] += self.alpha * (R + self.gamma * max_Q - Q[S][A])
+
 
 class GreedyPolicy():
     def __init__(self, actions, eps=None):
@@ -53,14 +71,9 @@ class GreedyPolicy():
                 if value == max_q:
                     return action
 
-class WindyGridWorld():
-    def __init__(self, states, wind):
+class GridWorld():
+    def __init__(self, states):
         self.states = states
-        self.wind = wind
-        self.reward = -1
-
-    def _wind(self, state):
-        return (self.wind[state[1]], 0)
 
     def _corner_check(self, state):
         row, col = state
@@ -72,16 +85,23 @@ class WindyGridWorld():
         col = min(col, max_col)
         return (row, col)
 
+    def transition(self):
+        raise NotImplementedError
+
+
+class CliffGridWorld(GridWorld):
+    def __init__(self, states, cliff, start):
+        super().__init__(states)
+        self.cliff = cliff
+        self.reward = -1 # constant
+        self.cliff_reward = -100
+        self.start = start
+
     def transition(self, state, action_idx):
-        S_prime = elem_sum(state, self._wind(state))
-        S_prime = elem_sum(S_prime, action_idx)
-        S_prime = self._corner_check(S_prime)
+        S_prime = self._corner_check(elem_sum(state, action_idx))
+        if S_prime in self.cliff:
+            return self.cliff_reward, self.start
         return self.reward, S_prime
-
-
-def elem_sum(a, b):
-    return tuple(map(lambda x,y: x+y, a, b))
-
 
 def test(S, policy, environment, q):
     A = policy(q, S, is_test=True)
@@ -94,39 +114,72 @@ def test(S, policy, environment, q):
         path.append(S)
     return actions_taken[:-1], path
 
-#def train(eps, )
+def elem_sum(a, b):
+    return tuple(map(lambda x,y: x+y, a, b))
+
 
 if __name__ == "__main__":
-    row = 7
-    col = 10
+    row = 4
+    col = 12
     start = (3, 0)
-    goal = (3, 7)
-    wind = (0, 0, 0, -1, -1, -1, -2, -2, -1, 0)
-    assert len(wind) == col, 'specify wind for every column'
+    goal = (3, 11)
+    cliff = [(3, i) for i in range(1, 11, 1)]
 
     states = get_states(row, col)
     actions, act_in_idx = get_actions('standard')
-    env = WindyGridWorld(states, wind)
-    Q = initialize_Q(states, actions)
+    env = CliffGridWorld(states, cliff, start)
+    Q_sarsa = initialize_Q(states, actions)
+    Q_qlearning = initialize_Q(states, actions)
     eps_greedy = GreedyPolicy(actions, eps=0.1)
-    sarsa = SARSA(alpha=0.5)
+    sarsa = SARSA(alpha=0.5, gamma=1)
+    qlearning = QLearning(actions, alpha=0.5, gamma=1) # FIXME: alpha value?
 
-    for i in range(1000): # stop when?
-        print('episode num {}'.format(i))
+    # SARSA
+    for i in range(1000):
+        sum_reward_sarsa = [0]
         S = initialize_S(states, fixed=start)
-        A = eps_greedy(Q, S)
+        A = eps_greedy(Q_sarsa, S)
         step_taken = 0
         while S != goal:
             step_taken += 1
             R, S_prime = env.transition(S, act_in_idx[A])
-            A_prime = eps_greedy(Q, S_prime)
-            sarsa(S, A, R, S_prime, A_prime, Q) # Q updated in-place
+            sum_reward_sarsa.append(sum_reward_sarsa[-1] + R) 
+            A_prime = eps_greedy(Q_sarsa, S_prime)
+            sarsa(S, A, R, S_prime, A_prime, Q_sarsa) # Q updated in-place
             S = S_prime
             A = A_prime
+        print('episode num {}'.format(i))
         print('step taken for this episode: {}'.format(step_taken))
 
-    actions_taken, path= test(start, eps_greedy, env, Q)
-    print('number of actions :', len(actions_taken))
-    print('actions taken: ', actions_taken)
-    print('path: ', path)
+    # Q-learning
+    for i in range(1000):
+        sum_reward_qlearning = [0] 
+        print('episode num {}'.format(i))
+        S = initialize_S(states, fixed=start)
+        step_taken = 0
+        while S != goal:
+            step_taken += 1
+            A = eps_greedy(Q_qlearning, S)
+            R, S_prime = env.transition(S, act_in_idx[A])
+            sum_reward_qlearning.append(sum_reward_qlearning[-1] + R)
+            qlearning(S, A, R, S_prime, Q_qlearning) # Q updated in-place
+            S = S_prime
+        print('episode num {}'.format(i))
+        print('step taken for this episode: {}'.format(step_taken))
+
+
+
+    print('\n\n=====   TEST RESULTS   =====')
+    # TODO test for Q_sarsa and Q_qlearning
+    actions_taken_sarsa, path_sarsa = test(start, eps_greedy, env, Q_sarsa)
+    actions_taken_qlearning, path_qlearning = test(start, eps_greedy, env, Q_qlearning)
+    for method, actions_taken, path in zip(['SARSA', 'Q-learning'],
+                                          [actions_taken_sarsa, actions_taken_qlearning],
+                                          [path_sarsa, path_qlearning]):
+        print('method: ', method)
+        print('number of actions :', len(actions_taken))
+        print('actions taken: ', actions_taken)
+        print('path: ', path)
+        print()
+
 
