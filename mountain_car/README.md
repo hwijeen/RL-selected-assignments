@@ -5,6 +5,9 @@ The goal here is to learn a control task with SARSA using action-value function 
 
 
 ## Comments
+- Most of the time spent on understanding tile software.
+- Hashing in tile software is still unclear.
+- Why is the size of weight vector same as max_size of IHT?
 
 ## Results
 Cost-to-go function learned during one run.
